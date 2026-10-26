@@ -1,8 +1,8 @@
 {
-  "version": "0.3.3",
+  "version": "0.3.4",
   "file": "index.html",
-  "sha256": "9100c1b75adbed9a9284447a0bee26e4a8943b48a8d71c3128001e679f3d3f0c",
+  "sha256": "04e7bf1bf646ddf86513a92d15a35f650220a07b2938d88c6bf5010c354d89fb",
   "minApp": "0.4.0",
-  "released": "2026-10-26T22:51Z",
-  "notes": "Steerable swinging, Space to jump off the tether, wall-jump speed boost, wall-climbing with aim-based kicks, stronger wall slide, gate pillars set into the walls and pass-through."
+  "released": "2026-10-26T22:55Z",
+  "notes": "Gate pillars set into the walls, new title tagline, hints removed. Includes steerable swinging, Space to jump off the tether, wall-jump speed boost, wall-climbing with aim-based kicks and stronger wall slide."
 }
