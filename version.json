@@ -1,8 +1,8 @@
 {
-  "version": "0.3.1",
+  "version": "0.3.3",
   "file": "index.html",
-  "sha256": "5cc0e006554706283af712918e8dd5a67247ff9144965a400a1abee9d7f41af2",
+  "sha256": "9100c1b75adbed9a9284447a0bee26e4a8943b48a8d71c3128001e679f3d3f0c",
   "minApp": "0.4.0",
-  "released": "2026-10-26T21:41Z",
-  "notes": "Finish screen now freezes the player; only Try again and Main menu work."
+  "released": "2026-10-26T22:51Z",
+  "notes": "Steerable swinging, Space to jump off the tether, wall-jump speed boost, wall-climbing with aim-based kicks, stronger wall slide, gate pillars set into the walls and pass-through."
 }

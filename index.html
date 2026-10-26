@@ -132,14 +132,14 @@ body.menu-on .hud{display:none!important}
 <script src="lib/three.min.js"></script>
 <script>
 (()=>{
-const GAME_VERSION='0.3.1';
+const GAME_VERSION='0.3.3';
 const V3=THREE.Vector3;
 const $=id=>document.getElementById(id);
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 
 /* ---------- tuning ---------- */
-const T={G:30,JUMP:12,DJ:10.5,WALK:8.5,SPRINT:13,GACC:12,FRIC:7,AIRACC:3,AIRCAP:8,SWINGACC:4,SWINGCAP:10,
-  MAXSPD:55,WALLMIN:11,WALLTIME:2.2,WALLJUMP_OUT:9,WALLJUMP_UP:11,RANGE:46,REEL:3.2,MINLEN:4,R:.4,H:1.8,EYE:1.62,HAND:1.4,KILLY:-32};
+const T={G:30,JUMP:12,DJ:10.5,WALK:8.5,SPRINT:13,GACC:12,FRIC:7,AIRACC:3,AIRCAP:8,SWINGACC:8,SWINGCAP:14,SWINGTURN:2.6,
+  MAXSPD:55,WALLMIN:11,WALLTIME:2.2,WALLJUMP_OUT:15,WALLJUMP_UP:15,WALLBOOST:2.5,WALLBOOSTMAX:20,WALLSLIDE:.38,WALLSLIDEMAX:7,RANGE:46,REEL:3.2,MINLEN:4,R:.4,H:1.8,EYE:1.62,HAND:1.4,KILLY:-32};
 
 /* ---------- renderer / scene ---------- */
 const canvas=$('c');
@@ -279,11 +279,13 @@ function ring(x,y,z){
 
 const gates=[];
 function gate(z,base,idx,label,spawn,finish=false){
-  const x0=-11,x1=11;
+  const x0=-13.9,x1=13.9; // pillars sit inside the side walls, only their carved face shows
   const mat=mats.run.clone();mat.emissiveIntensity=.55;
   const L=B(x0-3,x0,base-36,base+19,z-1.5,z+1.5,'gate',mat);
   const Rt=B(x1,x1+3,base-36,base+19,z-1.5,z+1.5,'gate',mat);
   const top=B(x0-3,x1+3,base+16,base+19,z-1.5,z+1.5,'gate',mat);
+  // gate frames are scenery: you fly through them, they never block you or your tether
+  for(const part of [L,Rt,top]){solids.splice(solids.indexOf(part),1);rayBlockers.splice(rayBlockers.indexOf(part.mesh),1);}
   const portalMat=new THREE.MeshBasicMaterial({color:finish?0xff5a3a:0xff2a20,transparent:true,opacity:.06,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending});
   const portal=new THREE.Mesh(new THREE.PlaneGeometry(x1-x0,16+30),portalMat);portal.position.set(0,base+16-23,z);scene.add(portal);
   const g={z,base,idx,label,spawn,finish,mat,portalMat,lit:false,flash:0};gates.push(g);return g;
@@ -334,7 +336,7 @@ platform(-4,4,9,-242,-229);
 platform(-1,7,12,-251,-246);
 platform(-7,1,15,-260,-255);
 pad(-3,-257.5,15,'jump',24,2.4);
-platform(-8,8,20,-290,-268);         // P6
+platform(-8,8,20,-290,-265);         // P6
 // 6 · The Gauntlet (alternating rune walls)
 B(-6,-4,-12,34,-306,-294,'run');
 B(4,6,-12,34,-316,-304,'run');
@@ -433,7 +435,7 @@ const sfx={
 
 /* ---------- state ---------- */
 const P={pos:SPAWN.clone(),vel:new V3(),grounded:false,coyote:0,hasDouble:true,jumpBuf:0,
-  contactN:null,contactAge:9,wallRun:false,wallT:0,wallN:new V3(),lockN:null,lockT:0,grapple:null,shoot:0,landV:0};
+  contactN:null,contactAge:9,wjT:0,wallRun:false,wallT:0,wallN:new V3(),lockN:null,lockT:0,grapple:null,shoot:0,landV:0};
 let yaw=0,pitch=0,roll=0;
 const keys={};
 let mode='menu'; // menu | play | paused | finished
@@ -449,7 +451,7 @@ function fmtD(d){return (d<0?'−':'+')+Math.abs(d).toFixed(3)+'s';}
 function resetRun(){
   P.pos.copy(SPAWN);P.vel.set(0,0,0);P.grapple=null;P.wallRun=false;P.hasDouble=true;P.jumpBuf=0;
   yaw=0;pitch=0;roll=0;running=false;time=0;nextGate=0;splits=[];lastSpawn=SPAWN.clone();
-  gates.forEach(g=>{g.lit=false;g.flash=0;});
+  gates.forEach(g=>{g.lit=false;g.flash=0;});pads.forEach(p=>{p.cool=0;p.flash=0;});
   $('split').textContent='';updatePips();clearTether();
 }
 function respawn(){
@@ -515,9 +517,9 @@ function step(dt){
   const wasGround=P.grounded;
   const prevZ=P.pos.z;
   const w=wishDir();
-  P.jumpBuf-=dt;P.contactAge+=dt;if(P.lockT>0)P.lockT-=dt;
+  P.jumpBuf-=dt;P.contactAge+=dt;if(P.lockT>0)P.lockT-=dt;if(P.wjT>0)P.wjT-=dt;
   P.coyote=wasGround?.1:P.coyote-dt;
-  if(wasGround){P.hasDouble=true;P.lockN=null;}
+  if(wasGround){P.hasDouble=true;P.lockN=null;P.wjT=0;}
   let jumped=false;
   const hs=Math.hypot(P.vel.x,P.vel.z);
 
@@ -525,11 +527,20 @@ function step(dt){
   if(P.jumpBuf>0){
     if(P.coyote>0){P.vel.y=T.JUMP;jumped=true;P.coyote=0;P.jumpBuf=0;sfx.jump();}
     else if(P.wallRun){
-      const n=P.wallN;const out=T.WALLJUMP_OUT;
+      const n=P.wallN;
+      // aim decides the kick: look away from the wall for a full kick (climbing), look along it for a gentle one (exiting)
+      const lookOut=Math.max(0,-Math.sin(yaw)*n.x-Math.cos(yaw)*n.z);
+      const out=8+(T.WALLJUMP_OUT-8)*Math.min(1,lookOut/.7);
+      // speed boost along the wall in the direction you're running
+      const tsp=Math.hypot(P.vel.x,P.vel.z);
+      if(tsp>.5){const add=Math.max(0,Math.min(T.WALLBOOST,T.WALLBOOSTMAX-tsp));P.vel.x+=P.vel.x/tsp*add;P.vel.z+=P.vel.z/tsp*add;}
       P.vel.x+=n.x*out;P.vel.z+=n.z*out;P.vel.y=T.WALLJUMP_UP;
       // let the player steer the kick a little
       if(w.lengthSq()){P.vel.x+=w.x*3;P.vel.z+=w.z*3;}
-      P.lockN=n.clone();P.lockT=.7;endWall();P.hasDouble=true;P.jumpBuf=0;sfx.walljump();
+      // keep speed along the wall under the boost cap (unless you were already faster)
+      {const vn=P.vel.x*n.x+P.vel.z*n.z,tx=P.vel.x-n.x*vn,tz=P.vel.z-n.z*vn,ts=Math.hypot(tx,tz),lim=Math.max(T.WALLBOOSTMAX,tsp);
+       if(ts>lim){const k=lim/ts;P.vel.x=tx*k+n.x*vn;P.vel.z=tz*k+n.z*vn;}}
+      P.lockN=n.clone();P.lockT=.7;P.wjT=1.5;endWall();P.hasDouble=true;P.jumpBuf=0;sfx.walljump();
     }else if(P.hasDouble){
       P.vel.y=T.DJ;P.hasDouble=false;P.jumpBuf=0;
       if(w.lengthSq()){const sp=Math.max(hs,T.WALK);const nx=w.x*sp,nz=w.z*sp;P.vel.x=P.vel.x*.45+nx*.55;P.vel.z=P.vel.z*.45+nz*.55;}
@@ -540,7 +551,7 @@ function step(dt){
   // wall-run start
   if(!P.wallRun&&!wasGround&&!P.grapple&&P.contactN&&P.contactAge<.06&&keys.KeyW&&hs>6){
     const blocked=P.lockT>0&&P.lockN&&P.lockN.dot(P.contactN)>.9;
-    if(!blocked){P.wallRun=true;P.wallT=0;P.wallN.copy(P.contactN);P.vel.y=Math.min(Math.max(P.vel.y,1.5),4);P.hasDouble=true;sfx.wall();}
+    if(!blocked){P.wallRun=true;P.wallT=0;P.wallN.copy(P.contactN);P.vel.y=P.wjT>0?Math.min(Math.max(P.vel.y,3.5),7):Math.min(Math.max(P.vel.y,1.5),4);P.hasDouble=true;sfx.wall();}
   }
   if(P.wallRun){
     P.wallT+=dt;
@@ -561,13 +572,28 @@ function step(dt){
     else if(tsp<T.WALLMIN){P.vel.x*=T.WALLMIN/tsp;P.vel.z*=T.WALLMIN/tsp;}
     P.vel.x-=n.x*1.5;P.vel.z-=n.z*1.5; // hug the wall
   }else if(P.grapple){
+    // steer the swing: turn horizontal velocity toward where you're aiming, keeping its speed
+    const sp=Math.hypot(P.vel.x,P.vel.z);
+    if(w.lengthSq()&&sp>1){
+      let d=Math.atan2(w.x,w.z)-Math.atan2(P.vel.x,P.vel.z);
+      d=Math.atan2(Math.sin(d),Math.cos(d));
+      if(Math.abs(d)<2.7){ // holding the opposite way brakes instead (accelerate below)
+        const a=Math.max(-T.SWINGTURN*dt,Math.min(T.SWINGTURN*dt,d)),c=Math.cos(a),s=Math.sin(a);
+        const vx=P.vel.x,vz=P.vel.z;P.vel.x=vx*c+vz*s;P.vel.z=-vx*s+vz*c;
+      }
+    }
     accelerate(w,T.SPRINT,T.SWINGACC,dt,T.SWINGCAP);
   }else{
     accelerate(w,T.SPRINT,T.AIRACC,dt,T.AIRCAP);
   }
 
   // gravity
-  if(P.wallRun){P.vel.y-=T.G*(P.vel.y>0?.6:.14)*dt;if(P.vel.y<-2.5)P.vel.y=-2.5;}
+  if(P.wallRun){
+    // the slide builds up: barely any drop for the first second, then it pulls you down harder
+    const ramp=Math.min(1,Math.max(0,(P.wallT-.9)/1.0));
+    P.vel.y-=T.G*(P.vel.y>0?.6:.1+(T.WALLSLIDE-.1)*ramp)*dt;
+    const cap=2.5+(T.WALLSLIDEMAX-2.5)*ramp;if(P.vel.y<-cap)P.vel.y=-cap;
+  }
   else P.vel.y-=T.G*dt;
   if(P.vel.y<-60)P.vel.y=-60;
 
@@ -652,10 +678,18 @@ function grapple(){
   P.wallRun=false;P.hasDouble=true;sfx.fire();setTimeout(()=>P.grapple&&sfx.latch(),70);
   $('sigil').classList.add('held');
 }
-function release(){
+function release(jump){
   if(!P.grapple)return;
   P.grapple=null;clearTether();sfx.release();$('sigil').classList.remove('held');
-  if(Math.hypot(P.vel.x,P.vel.z)>7&&P.vel.y>-4)P.vel.y+=2.5; // little hop off the swing
+  const sp=Math.hypot(P.vel.x,P.vel.z);
+  // aimed release: with W held, bend the launch toward where you're looking (up to ~35°)
+  if(keys.KeyW&&sp>2){
+    const fx=-Math.sin(yaw),fz=-Math.cos(yaw);
+    let d=Math.atan2(fx,fz)-Math.atan2(P.vel.x,P.vel.z);d=Math.atan2(Math.sin(d),Math.cos(d));
+    if(Math.abs(d)<Math.PI/2){const a=Math.max(-.6,Math.min(.6,d)),c=Math.cos(a),s=Math.sin(a),vx=P.vel.x,vz=P.vel.z;P.vel.x=vx*c+vz*s;P.vel.z=-vx*s+vz*c;}
+  }
+  if(jump){P.vel.y=Math.max(P.vel.y,0)+9;P.hasDouble=true;P.jumpBuf=0;sfx.jump();}
+  else if(sp>7&&P.vel.y>-4)P.vel.y+=2.5; // little hop off the swing
 }
 
 /* ---------- input ---------- */
@@ -672,7 +706,7 @@ addEventListener('keydown',e=>{
   if(mode==='finished')return; // only the Try again / Main menu buttons work here
   if(e.code==='KeyR'){if(mode==='play'||mode==='paused'){resetRun();if(mode!=='play')beginPlay();}return;}
   if(mode!=='play')return;
-  if(e.code==='Space')P.jumpBuf=.12;
+  if(e.code==='Space'){if(P.grapple)release(true);else P.jumpBuf=.12;}
   if(MOVEKEYS.includes(e.code))startClock();
 });
 addEventListener('keyup',e=>{keys[e.code]=false;});
@@ -704,8 +738,8 @@ const controlsHTML=`<div class="keys">
 <kbd>W A S D</kbd><span>Move</span>
 <kbd>Shift</kbd><span>Sprint</span>
 <kbd>Space</kbd><span>Jump, press again in the air to double jump</span>
-<kbd>Hold W on a wall</kbd><span>Wall-run along it. Space kicks you off</span>
-<kbd>Hold Left Click</kbd><span>Fire the tether at a rune ring or rune beam and swing. Let go to release</span>
+<kbd>Hold W on a wall</kbd><span>Wall-run along it. Space kicks you off with a speed boost. Look at the opposite wall for a big kick and kick back and forth to climb; look ahead for a gentle kick</span>
+<kbd>Hold Left Click</kbd><span>Fire the tether at a rune ring or rune beam and swing. Hold W and look where you want to go to steer. Let go to release, or press Space to jump off</span>
 <kbd>Rune sigils</kbd><span>Step on a circle sigil to launch upward, an arrow sigil to shoot forward</span>
 <kbd>R</kbd><span>Restart the run</span>
 <kbd>Esc</kbd><span>Pause</span>${window.desktop?'<kbd>F11</kbd><span>Switch between fullscreen and a window</span>':''}</div>`;
